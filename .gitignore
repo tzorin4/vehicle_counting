@@ -3,4 +3,5 @@ archive/
 yolo*
 runs/
 results/
-dataset_output/
+dataset_output*/
+dataset*/
