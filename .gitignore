@@ -1,2 +1,6 @@
 *.zip
 archive/
+yolo*
+runs/
+results/
+dataset_output/
