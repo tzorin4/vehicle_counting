@@ -1,20 +1,21 @@
 from ultralytics import YOLO
+import torch
 
 def main():
-    # Load a pre-trained YOLO model (recommended for training)
-    model = YOLO("yolov8n.pt") 
+    print("cuda available:", torch.cuda.is_available())
+    # Load a pre-trained YOLO model
+    model = YOLO("yolov8n.pt")
 
     # Train the model using the dataset config
     results = model.train(
-        data="dataset.yaml",   # Path to the dataset config we created
-        epochs=50,             # Number of training epochs
-        imgsz=640,             # Target image size
-        batch=50,              # Batch size
-        device="0",          # Change to "0" if you have a CUDA compatible GPU
-        project="runs/train",  # Where to save the results
-        name="detrac_yolo"     # Name of the training run
+        data="cuda_dataset.yaml",  # full path to your YAML on Drive
+        epochs=50,
+        imgsz=640,
+        batch=16,               # reduced batch size for Colab GPU (adjust if you OOM)
+        device=0,               # use CUDA GPU 0 (int) or "cuda:0"
+        project="runs/train",
+        name="detrac_yolo"
     )
 
 if __name__ == "__main__":
     main()
-    
