@@ -5,3 +5,5 @@ runs/
 results/
 dataset_output*/
 dataset*/
+*pycache*/
+*.log

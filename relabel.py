@@ -23,7 +23,6 @@ AUTO_MAP_RULES = {
     1: 0, # Previous 1 (Car) -> Target 0 (Car)
     2: 0, # van -> car
     3: 3, #bus -> bus
-
 }
 
 class RelabelApp:
@@ -126,6 +125,7 @@ class RelabelApp:
             return
 
         self.images_list = load_img_and_lbl(self.img_dir, self.lbl_dir)
+        self.create_output_dirs()
 
         if len(self.images_list) == 0:
             messagebox.showerror("Error", "No images found in the selected directory.")
@@ -135,9 +135,18 @@ class RelabelApp:
             self.train_split = float(self.entry_split.get()) / 100.0
         except ValueError:
             self.train_split = 0.8
-        
         self.current_img_idx = 0
-        self.load_image()
+        self.process_current_image()
+        
+        
+    def process_current_image(self):
+        
+        self.keep_processing = True
+        self.image_loaded = False
+        while not self.image_loaded and self.current_img_idx < len(self.images_list) and self.keep_processing:
+            # print("here 1")
+            self.load_image()
+            
 
     def load_image(self): # TODO : check method
         if self.current_img_idx >= len(self.images_list) or self.current_img_idx < 0:
@@ -159,10 +168,15 @@ class RelabelApp:
             else:
                 box['needs_review'] = True
                 left_to_check = True
-        
+        # print("here 0")
         if not left_to_check and self.skip_var.get():
+            # print("here 2")
             self.save_and_next()
+            # print("here 3")
+            self.next_image(skip_count=int(self.skip_amount_entry.get()))
             return
+        
+        self.image_loaded = True
 
         self.cv_img = cv2.imread(self.img_path)
         if self.cv_img is None:
@@ -170,19 +184,17 @@ class RelabelApp:
             return
 
         self.img_h, self.img_w, _ = self.cv_img.shape
-        self.current_bboxes = self.find_and_parse_labels(base_name)
         
         self.current_box_idx = 0
         self.show_next_review_box()
-
+ 
     def save_and_next(self):
         split = 'train' if random.random() <= self.train_split else 'val'
 
         base_name = os.path.basename(self.img_path)
         dest_img_path = os.path.join(self.output_dir, split, 'images', base_name)
         dest_lbl_path = os.path.join(self.output_dir, split, 'labels', os.path.splitext(base_name)[0] + '.txt')
-        print(f"{self.img_path} -> {dest_img_path} | {self.lbl_path} -> {dest_lbl_path}")
-
+       
         shutil.copy2(self.img_path, dest_img_path)
 
         with open(dest_lbl_path, 'w') as f:
@@ -193,10 +205,10 @@ class RelabelApp:
 
     def next_image(self, skip_count=1):
         if self.current_img_idx + skip_count >= len(self.images_list) or self.current_img_idx + skip_count < 0:
+            self.keep_processing = False
             messagebox.showinfo("Info", "No more images to process.")
             return
         self.current_img_idx += self.default_skip
-        self.load_image()
 
     def delete_box(self):
         pass
@@ -206,11 +218,13 @@ class RelabelApp:
             if self.current_bboxes[self.current_box_idx]['needs_review']:
                 break
             self.current_box_idx += 1
-
+        # print("here 4")
         self.draw_canvas()
 
         if self.current_box_idx >= len(self.current_bboxes):
+            # print("here 5")
             self.save_and_next()
+            self.process_current_image()
 
     def draw_canvas(self):
         display_img = self.cv_img.copy()
@@ -244,7 +258,20 @@ class RelabelApp:
             display_img = cv2.resize(display_img, (int(w*scale), int(h*scale)))
 
         self.tk_img = ImageTk.PhotoImage(image=Image.fromarray(display_img))
+        # print("here 6")
         self.canvas.create_image(canvas_w//2, canvas_h//2, anchor=tk.CENTER, image=self.tk_img)
+
+    def create_output_dirs(self):
+        """Create train/val image and label directories."""
+        for split in ['train', 'val']:
+            os.makedirs(os.path.join(self.output_dir, split, 'images'), exist_ok=True)
+            os.makedirs(os.path.join(self.output_dir, split, 'labels'), exist_ok=True)
+    
+    def set_label(self, class_id):
+        if self.current_box_idx < len(self.current_bboxes):
+            self.current_bboxes[self.current_box_idx]['id'] = class_id
+            self.current_bboxes[self.current_box_idx]['needs_review'] = False
+            self.show_next_review_box()
 
 if __name__ == "__main__":
     root = tk.Tk()
