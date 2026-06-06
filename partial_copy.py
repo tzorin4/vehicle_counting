@@ -14,7 +14,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     img_dir = args.img_dir
     lbl_dir = args.lbl_dir
-    number_of_pairs_to_copy = args.num_pairs
+    number_of_pairs_to_copy = min(args.num_pairs, len(load_img_and_lbl(img_dir, lbl_dir)))
     list_of_pairs = load_img_and_lbl(img_dir, lbl_dir)
     train_split = args.train_split
     output_dir = args.output_dir

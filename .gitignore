@@ -7,3 +7,10 @@ dataset_output*/
 dataset*/
 *pycache*/
 *.log
+*dataset*
+runs*/
+runs1
+*results*
+datasets/
+*videos/
+model_labels/

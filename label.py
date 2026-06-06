@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Run YOLO inference on images and save annotated frames + YOLO label files.
+Run YOLO inference on images and save original images + YOLO label files.
 Usage: python label.py --input images/ --output out/ --model yolo26s.pt --conf 0.5
 """
 
 import argparse
+import shutil
 from pathlib import Path
 
 import cv2
@@ -33,12 +34,9 @@ def main():
     # Process images
     image_paths = sorted(Path(args.input).glob("*.jpg"), key=lambda p: natural_sort_key(str(p)))
     for img_path in tqdm(image_paths, desc="Processing"):
-        # Inference
-        results = model(img_path, conf=args.conf)[0]
-        # Save annotated image (with boxes drawn)
-        annotated = results.plot()
+        results = model(img_path, conf=args.conf, verbose=False)[0]
         out_img = out_dir / "images" / img_path.name
-        cv2.imwrite(str(out_img), annotated)
+        shutil.copy2(img_path, out_img)   # fastest, preserves original
 
         # Save label file (YOLO format)
         if results.boxes is not None:

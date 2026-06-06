@@ -31,11 +31,10 @@ CLASSES — edit the dict below (key = class name, value = YOLO index):
 #  CONFIGURE YOUR CLASSES HERE
 # ─────────────────────────────────────────────
 CLASSES = {
-    "cat":    0,
-    "dog":    1,
-    "person": 2,
-    "car":    3,
-    "bike":   4,
+    "car":    0,
+    "motorbike":    1,
+    "truck": 2,
+    "bus":    3,
 }
 # ─────────────────────────────────────────────
 
@@ -238,6 +237,7 @@ class LabelerApp(tk.Tk):
         tk.Button(toolbar, text="📁 Output Dir",     command=self.set_output,   **B).pack(side=tk.LEFT, padx=3)
         tk.Button(toolbar, text="💾 Save",           command=self.save_current, **B).pack(side=tk.LEFT, padx=3)
         tk.Button(toolbar, text="✅ Export Dataset", command=self.export_all,   **B).pack(side=tk.LEFT, padx=3)
+        tk.Button(toolbar, text="🔀 Remap Classes",  command=self.open_remap_dialog, **B).pack(side=tk.LEFT, padx=3)
 
         # separator
         tk.Frame(toolbar, bg="#333", width=2).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
@@ -374,27 +374,12 @@ class LabelerApp(tk.Tk):
                   activebackground="#e94560", activeforeground="white"
                   ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(2,0))
 
-        # Reassign class for selected box
-        tk.Label(side, text="REASSIGN SELECTED BOX", bg="#16213e", fg="#888",
-                 font=("Courier", 8, "bold")).pack(anchor="w", padx=8, pady=(8,1))
-
-        self.reassign_var = tk.StringVar(value=CLASS_NAMES[0] if CLASS_NAMES else "")
-        reassign_menu = tk.OptionMenu(side, self.reassign_var, *CLASS_NAMES)
-        reassign_menu.config(bg="#0d0d1a", fg="white", relief="flat",
-                              font=("Courier", 9), activebackground="#e94560",
-                              activeforeground="white", highlightthickness=0)
-        reassign_menu["menu"].config(bg="#0d0d1a", fg="white", font=("Courier", 9))
-        reassign_menu.pack(fill=tk.X, padx=6)
-
-        tk.Button(side, text="Apply Class to Selected",
-                  command=self.reassign_selected_class,
-                  bg="#1a2a3a", fg="#aaccff", relief="flat",
-                  font=("Courier", 9), pady=2, cursor="hand2",
-                  activebackground="#44aaff", activeforeground="black"
-                  ).pack(fill=tk.X, padx=6, pady=2)
-
         # Hints
-        tk.Label(side, text="Draw: left-drag  |  Del: delete\n← → navigate  |  click box = select",
+        tk.Label(side,
+                 text="Draw: left-drag  |  Del: delete\n"
+                      "← → navigate  |  L-click = select\n"
+                      "R-click box = reassign class\n"
+                      "🔀 Remap = bulk class remapping",
                  bg="#16213e", fg="#444", font=("Courier", 8), justify="left"
                  ).pack(anchor="w", padx=8, pady=6)
 
@@ -405,10 +390,11 @@ class LabelerApp(tk.Tk):
                  anchor="w", padx=8, pady=3).pack(fill=tk.X, side=tk.BOTTOM)
 
         # Canvas events
-        self.canvas.bind("<ButtonPress-1>",  self._on_mouse_press)
-        self.canvas.bind("<B1-Motion>",       self._on_mouse_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_release)
-        self.canvas.bind("<Configure>",       lambda e: self._redraw())
+        self.canvas.bind("<ButtonPress-1>",   self._on_mouse_press)
+        self.canvas.bind("<B1-Motion>",        self._on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>",  self._on_mouse_release)
+        self.canvas.bind("<ButtonPress-3>",    self._on_right_click)
+        self.canvas.bind("<Configure>",        lambda e: self._redraw())
 
     # =========================================================================
     # Class UI helpers
@@ -616,16 +602,315 @@ class LabelerApp(tk.Tk):
         self._redraw()
         self.status("All predictions rejected.")
 
-    def reassign_selected_class(self):
-        if self.selected_box is None:
+    def reassign_selected_class(self, class_name: str):
+        """Reassign the selected box to class_name."""
+        if self.selected_box is None or class_name not in CLASSES:
             return
-        name = self.reassign_var.get()
-        if name not in CLASSES:
-            return
-        self.boxes[self.selected_box].class_idx = CLASSES[name]
+        self.boxes[self.selected_box].class_idx = CLASSES[class_name]
         self._refresh_box_list()
         self._redraw()
-        self.status(f"Box reassigned → [{CLASSES[name]}] {name}")
+        self.status(f"Box reassigned → [{CLASSES[class_name]}] {class_name}")
+
+    # ── Right-click context menu ───────────────────────────────────────────
+    def _on_right_click(self, event):
+        """Right-click on canvas: if over a box, pop up a class-reassign menu."""
+        if self.pil_image is None:
+            return
+        hit = self._hit_test(event.x, event.y)
+        if hit is None:
+            return
+        self.selected_box = hit
+        self._refresh_box_list()
+        self._redraw()
+
+        menu = tk.Menu(self, tearoff=0, bg="#0d0d1a", fg="white",
+                       activebackground="#e94560", activeforeground="white",
+                       font=("Courier", 9), relief="flat", bd=0)
+        box  = self.boxes[hit]
+        menu.add_command(label=f"  Box [{box.class_idx}]  →  reassign to:",
+                         state="disabled")
+        menu.add_separator()
+        for name in CLASS_NAMES:
+            idx   = CLASSES[name]
+            check = "● " if idx == box.class_idx else "  "
+            color = class_color(idx)
+            menu.add_command(
+                label=f"{check}[{idx}] {name}",
+                foreground=color,
+                command=lambda n=name: self.reassign_selected_class(n)
+            )
+        menu.add_separator()
+        menu.add_command(label="  🗑  Delete this box",
+                         foreground="#ff6666",
+                         command=self.delete_selected_box)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    # ── Bulk remap dialog ──────────────────────────────────────────────────
+    def open_remap_dialog(self):
+        """
+        Remap dialog.
+
+        SOURCE column: every class index actually present in loaded labels
+                       PLUS every index defined in CLASSES — shown as
+                       "idx  name-if-known".
+        TARGET column: a Spinbox (integer entry). Type any integer you want,
+                       including indices that don't exist in your CLASSES dict.
+                       This lets you collapse a fine-grained model (e.g. 15
+                       classes) down to a coarser one (e.g. 5 classes).
+
+        Multiple rows can be changed at once.
+        Scope: current image  or  all loaded label files.
+        """
+        # ── Collect all class indices actually present in loaded labels ──
+        present_indices: set[int] = set()
+        for entry in self.image_entries:
+            lbl = entry["lbl"]
+            if lbl and lbl.exists():
+                with open(lbl) as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if parts:
+                            try:
+                                present_indices.add(int(parts[0]))
+                            except ValueError:
+                                pass
+        # Also add currently drawn boxes
+        for b in self.boxes:
+            present_indices.add(b.class_idx)
+        # Merge with CLASSES-defined indices
+        all_indices = sorted(present_indices | set(CLASSES.values()))
+
+        def idx_label(idx: int) -> str:
+            name = INDEX_TO_CLASS.get(idx)
+            return f"{idx}  ({name})" if name else f"{idx}  (unknown)"
+
+        # ── Dialog window ────────────────────────────────────────────────
+        dlg = tk.Toplevel(self)
+        dlg.title("Remap Classes")
+        dlg.configure(bg="#1a1a2e")
+        dlg.resizable(True, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="BULK CLASS REMAPPING",
+                 bg="#1a1a2e", fg="#e94560",
+                 font=("Courier", 12, "bold"), pady=8).pack()
+
+        tk.Label(dlg,
+                 text="Source = class index found in your labels.\n"
+                      "Target = any integer you want (type it or spin).\n"
+                      "Rows where source = target are skipped.",
+                 bg="#1a1a2e", fg="#888", font=("Courier", 9)).pack(pady=(0, 6))
+
+        # ── Scrollable rows area ─────────────────────────────────────────
+        outer = tk.Frame(dlg, bg="#1a1a2e")
+        outer.pack(fill=tk.BOTH, expand=True, padx=12)
+
+        canvas_scroll = tk.Canvas(outer, bg="#1a1a2e", highlightthickness=0,
+                                   height=min(40 * len(all_indices) + 10, 480))
+        vsb = tk.Scrollbar(outer, orient="vertical", command=canvas_scroll.yview)
+        canvas_scroll.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas_scroll.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        rows_frame = tk.Frame(canvas_scroll, bg="#1a1a2e")
+        canvas_scroll.create_window((0, 0), window=rows_frame, anchor="nw")
+
+        def on_frame_configure(e):
+            canvas_scroll.configure(scrollregion=canvas_scroll.bbox("all"))
+        rows_frame.bind("<Configure>", on_frame_configure)
+
+        # Header
+        hdr_bg = "#0f3460"
+        for col, (txt, w) in enumerate([("Source index / name", 24),
+                                          ("→", 3),
+                                          ("Target index", 14),
+                                          ("", 6)]):
+            tk.Label(rows_frame, text=txt, bg=hdr_bg, fg="white",
+                     font=("Courier", 9, "bold"), padx=8, pady=4,
+                     width=w, anchor="w").grid(row=0, column=col, sticky="ew", padx=1)
+
+        # One row per index
+        target_vars: dict[int, tk.StringVar] = {}   # src_idx -> StringVar(str(int))
+
+        for i, src_idx in enumerate(all_indices):
+            row = i + 1
+            bg  = "#0d0d1a" if i % 2 == 0 else "#111125"
+            color = class_color(src_idx)
+
+            # Source label
+            tk.Label(rows_frame, text=idx_label(src_idx),
+                     bg=bg, fg=color,
+                     font=("Courier", 10, "bold"), padx=10, pady=4,
+                     anchor="w", width=24
+                     ).grid(row=row, column=0, sticky="ew")
+
+            tk.Label(rows_frame, text="→", bg=bg, fg="#555",
+                     font=("Courier", 12)
+                     ).grid(row=row, column=1, padx=6)
+
+            var = tk.StringVar(value=str(src_idx))
+            target_vars[src_idx] = var
+
+            # Spinbox: accepts any integer; user can also type freely
+            sb = tk.Spinbox(rows_frame, from_=0, to=9999,
+                             textvariable=var, width=12,
+                             bg=bg, fg="white",
+                             insertbackground="white",
+                             buttonbackground="#0f3460",
+                             font=("Courier", 10, "bold"),
+                             relief="flat", bd=0)
+            sb.grid(row=row, column=2, sticky="ew", padx=4, pady=2)
+
+            # Quick-set buttons: one per known class
+            btn_row = tk.Frame(rows_frame, bg=bg)
+            btn_row.grid(row=row, column=3, sticky="w", padx=4)
+            for tgt_name in CLASS_NAMES:
+                tgt_idx = CLASSES[tgt_name]
+                c = class_color(tgt_idx)
+                tk.Button(btn_row, text=str(tgt_idx),
+                           bg="#1a1a2e", fg=c,
+                           font=("Courier", 8, "bold"),
+                           relief="flat", padx=3, pady=1,
+                           cursor="hand2",
+                           activebackground=c, activeforeground="black",
+                           command=lambda v=var, t=str(tgt_idx): v.set(t)
+                           ).pack(side=tk.LEFT, padx=1)
+
+        # ── Preview ──────────────────────────────────────────────────────
+        preview_var = tk.StringVar(value="No changes pending.")
+        tk.Label(dlg, textvariable=preview_var,
+                 bg="#1a1a2e", fg="#44ff88", font=("Courier", 8),
+                 wraplength=560, justify="left", pady=4).pack(padx=12)
+
+        def update_preview(*_):
+            changes = []
+            for si, v in target_vars.items():
+                try:
+                    ti = int(v.get())
+                except ValueError:
+                    continue
+                if ti != si:
+                    tname = INDEX_TO_CLASS.get(ti, "?")
+                    sname = INDEX_TO_CLASS.get(si, "?")
+                    changes.append(f"{si}({sname})→{ti}({tname})")
+            preview_var.set("Pending: " + "  |  ".join(changes) if changes else "No changes pending.")
+
+        for v in target_vars.values():
+            v.trace_add("write", update_preview)
+        update_preview()
+
+        # ── Scope ─────────────────────────────────────────────────────────
+        scope_frame = tk.Frame(dlg, bg="#1a1a2e")
+        scope_frame.pack(fill=tk.X, padx=12, pady=(4, 2))
+        scope_var = tk.StringVar(value="current")
+        tk.Label(scope_frame, text="Apply to:", bg="#1a1a2e", fg="#aaa",
+                 font=("Courier", 9, "bold")).pack(side=tk.LEFT, padx=(0, 8))
+        for val, lbl_text in [("current", "Current image only"),
+                                ("all",     "ALL loaded images (rewrites label files)")]:
+            tk.Radiobutton(scope_frame, text=lbl_text,
+                           variable=scope_var, value=val,
+                           bg="#1a1a2e", fg="#ccc", selectcolor="#0f3460",
+                           activebackground="#1a1a2e", activeforeground="white",
+                           font=("Courier", 9)).pack(side=tk.LEFT, padx=6)
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        btn_frame = tk.Frame(dlg, bg="#1a1a2e")
+        btn_frame.pack(pady=8)
+
+        def apply():
+            # Build remap: src_int -> tgt_int, skip unchanged
+            remap: dict[int, int] = {}
+            bad = []
+            for si, v in target_vars.items():
+                raw = v.get().strip()
+                try:
+                    ti = int(raw)
+                except ValueError:
+                    bad.append(f"\"{raw}\" for source {si}")
+                    continue
+                if ti != si:
+                    remap[si] = ti
+
+            if bad:
+                messagebox.showerror("Invalid input",
+                    "These target values are not integers:\n" + "\n".join(bad))
+                return
+            if not remap:
+                messagebox.showinfo("Nothing to do", "All targets equal their sources.")
+                return
+
+            scope = scope_var.get()
+            if scope == "current":
+                self._apply_remap_to_boxes(self.boxes, remap)
+                self._auto_save()
+                self._refresh_box_list()
+                self._redraw()
+                self.status(f"Remapped {len(remap)} class(es) on current image.")
+            else:
+                self._auto_save()
+                self._apply_remap_to_boxes(self.boxes, remap)
+                self._refresh_box_list()
+                self._redraw()
+                changed_files = 0
+                iw_cache: dict = {}
+                for idx_e, entry in enumerate(self.image_entries):
+                    lbl = entry["lbl"]
+                    if lbl is None or not lbl.exists():
+                        continue
+                    img_path = entry["img"]
+                    if img_path not in iw_cache:
+                        iw, ih = Image.open(img_path).size
+                        iw_cache[img_path] = (iw, ih)
+                    iw, ih = iw_cache[img_path]
+                    boxes = self._load_existing_labels(img_path, lbl)
+                    self._apply_remap_to_boxes(boxes, remap)
+                    lbl.parent.mkdir(parents=True, exist_ok=True)
+                    with open(lbl, "w") as f:
+                        for b in boxes:
+                            f.write(b.to_yolo(iw, ih) + "\n")
+                    # Mirror to output_dir if set
+                    if self.output_dir:
+                        out_lbl = self.output_dir / "labels" / (img_path.stem + ".txt")
+                        out_lbl.parent.mkdir(parents=True, exist_ok=True)
+                        with open(out_lbl, "w") as f:
+                            for b in boxes:
+                                f.write(b.to_yolo(iw, ih) + "\n")
+                    changed_files += 1
+                self.status(
+                    f"Remapped {len(remap)} class(es) across "
+                    f"{changed_files} file(s)."
+                    + (f"  Mirrored to {self.output_dir / 'labels'}"
+                       if self.output_dir else "")
+                )
+            dlg.destroy()
+
+        tk.Button(btn_frame, text="Apply Remap", command=apply,
+                  bg="#e94560", fg="white", font=("Courier", 10, "bold"),
+                  relief="flat", padx=20, pady=5, cursor="hand2",
+                  activebackground="#ff6688", activeforeground="white"
+                  ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(btn_frame, text="Reset all", command=lambda: [
+                      v.set(str(si)) for si, v in target_vars.items()],
+                  bg="#222", fg="#aaa", font=("Courier", 9),
+                  relief="flat", padx=12, pady=5, cursor="hand2"
+                  ).pack(side=tk.LEFT, padx=6)
+
+        tk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                  bg="#333", fg="white", font=("Courier", 10),
+                  relief="flat", padx=20, pady=5, cursor="hand2"
+                  ).pack(side=tk.LEFT, padx=6)
+
+
+    @staticmethod
+    def _apply_remap_to_boxes(boxes: list, remap: dict):
+        """In-place: change class_idx of each box according to remap dict."""
+        for b in boxes:
+            if b.class_idx in remap:
+                b.class_idx = remap[b.class_idx]
 
     # =========================================================================
     # Image loading
@@ -896,7 +1181,10 @@ class LabelerApp(tk.Tk):
     # Saving
     # =========================================================================
     def _auto_save(self):
-        """Persist only confirmed (non-ghost) boxes. Writes to the entry label path."""
+        """Persist only confirmed (non-ghost) boxes.
+        Always writes to the entry label path (source).
+        If an output_dir is set, ALSO writes a mirror copy there under
+        output_dir/labels/<stem>.txt so the output folder stays up to date."""
         if self.current_idx < 0 or not self.image_paths or self.pil_image is None:
             return
         entry      = self.image_entries[self.current_idx]
@@ -904,12 +1192,29 @@ class LabelerApp(tk.Tk):
         if label_path is None:
             label_path = entry["img"].with_suffix(".txt")
             entry["lbl"] = label_path
-        label_path.parent.mkdir(parents=True, exist_ok=True)
+
         iw, ih    = self.pil_image.size
         confirmed = [b for b in self.boxes if not b.ghost]
+        lines     = [b.to_yolo(iw, ih) for b in confirmed]
+
+        # Write to source location
+        label_path.parent.mkdir(parents=True, exist_ok=True)
         with open(label_path, "w") as f:
-            for b in confirmed:
-                f.write(b.to_yolo(iw, ih) + "\n")
+            f.write("\n".join(lines) + ("\n" if lines else ""))
+
+        # Mirror to output_dir/labels/ if set
+        if self.output_dir:
+            out_lbl_dir = self.output_dir / "labels"
+            out_lbl_dir.mkdir(parents=True, exist_ok=True)
+            out_lbl_path = out_lbl_dir / (entry["img"].stem + ".txt")
+            with open(out_lbl_path, "w") as f:
+                f.write("\n".join(lines) + ("\n" if lines else ""))
+            # Also mirror the image once (skip if already there)
+            out_img_dir  = self.output_dir / "images"
+            out_img_dir.mkdir(parents=True, exist_ok=True)
+            out_img_path = out_img_dir / entry["img"].name
+            if not out_img_path.exists():
+                shutil.copy2(entry["img"], out_img_path)
 
     def save_current(self):
         self._auto_save()

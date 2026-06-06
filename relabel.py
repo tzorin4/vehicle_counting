@@ -9,6 +9,7 @@ from PIL import Image, ImageTk
 import xml.etree.ElementTree as ET
 import re
 from test import load_img_and_lbl, find_and_parse_labels, natural_sort_key
+import argparse
 
 # --- TARGET CLASSES (YOLO MODEL) ---
 # 0: Car, 1: Motorcycle, 2: Truck, 3: Bus
@@ -19,11 +20,11 @@ UA_DETRAC_MAP = {'bus': 3, 'car': 1, 'van': 2, 'others': 4}
 
 # Auto-skip mappings based on instructions (Map Car and Van -> target Car)
 # It leaves 2 (Bus) and 3 (Others) for manual GUI review
-# AUTO_MAP_RULES = {
-#     1: 0, # Previous 1 (Car) -> Target 0 (Car)
-#     2: 0, # van -> car
-#     3: 3, #bus -> bus
-# }
+AUTO_MAP_RULES = {
+    # 1: 0, # Previous 1 (Car) -> Target 0 (Car)
+    # 2: 0, # van -> car
+    # 3: 3, #bus -> bus
+}
 
 class RelabelApp:
     def __init__(self, root, output_dir="dataset_output_test"):
@@ -126,6 +127,8 @@ class RelabelApp:
             return
 
         self.images_list = load_img_and_lbl(self.img_dir, self.lbl_dir)
+        print(f"image list legnth: {len(self.images_list)}")
+        print(self.images_list[:5])
         self.create_output_dirs()
 
         if len(self.images_list) == 0:
@@ -282,5 +285,10 @@ class RelabelApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = RelabelApp(root)
+    parser = argparse.ArgumentParser(description="Relabel and split dataset with GUI")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--output", "-o", default="dataset_output_test", help="Output directory for processed dataset")
+    args = parser.parse_args()
+    app = RelabelApp(root, output_dir=args.output)
     root.mainloop()
+    
