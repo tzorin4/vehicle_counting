@@ -2,7 +2,7 @@ from ultralytics import YOLO
 
 def main():
     # Load a pre-trained YOLO model (recommended for training)
-    model = YOLO("yolov8n.pt") 
+    model = YOLO("yolo26n.pt") 
 
     # Train the model using the dataset config
     results = model.train(

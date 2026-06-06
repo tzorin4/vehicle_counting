@@ -1,88 +1,159 @@
 #!/usr/bin/env python3
 """
-Video cutter based on timestamps.
-Usage:
-    python cut_video.py --input input.mp4 --start 00:01:30 --end 00:02:45 --output output.mp4
-    python cut_video.py -i video.mp4 -s 1:30 -e 2:45 -o clip.mp4
+Extract frames from a YouTube video (or local video file) with time range and frame skipping.
+
+Usage examples:
+    # Download YouTube video and extract all frames from 00:01:30 to 00:02:45
+    python yt_to_frames.py --url https://youtu.be/... --start 00:01:30 --end 00:02:45 --output frames
+
+    # Extract every 5th frame only
+    python yt_to_frames.py --url https://youtu.be/... --step 5 --output frames
+
+    # Use a local video file instead of downloading
+    python yt_to_frames.py --local video.mp4 --start 10 --end 20 --step 2
 """
 
+import os
+import sys
 import argparse
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
 
+import cv2
+from tqdm import tqdm
+
 def time_to_seconds(time_str: str) -> float:
-    """
-    Convert timestamp string (HH:MM:SS or MM:SS or SS) to seconds.
-    Examples: '1:30:45', '02:15', '125', '1:02:30.5'
-    """
+    """Convert HH:MM:SS or MM:SS or seconds string to float seconds."""
     parts = time_str.strip().split(':')
-    if len(parts) == 1:          # seconds only
+    if len(parts) == 1:
         return float(parts[0])
-    elif len(parts) == 2:        # minutes:seconds
+    elif len(parts) == 2:
         return int(parts[0]) * 60 + float(parts[1])
-    elif len(parts) == 3:        # hours:minutes:seconds
+    elif len(parts) == 3:
         return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
     else:
-        raise ValueError(f"Invalid time format: {time_str}. Use HH:MM:SS, MM:SS, or SS.")
+        raise ValueError(f"Invalid time format: {time_str}")
 
-def cut_video(input_path: str, start_time: str, end_time: str, output_path: str, reencode: bool = False):
-    """
-    Cut video from start_time to end_time using ffmpeg.
-    If reencode is False, it uses fast copy (no re-encoding, but may have keyframe inaccuracies).
-    If reencode is True, it re-encodes for precise cutting (slower).
-    """
-    input_file = Path(input_path)
-    if not input_file.is_file():
-        raise FileNotFoundError(f"Input video not found: {input_path}")
-
-    start_sec = time_to_seconds(start_time)
-    end_sec = time_to_seconds(end_time)
-    duration = end_sec - start_sec
-    if duration <= 0:
-        raise ValueError(f"End time ({end_time}) must be after start time ({start_time})")
-
-    # Build ffmpeg command
+def download_youtube_video(url: str, output_path: str) -> str:
+    """Download YouTube video to a file using yt-dlp. Returns the file path."""
+    print(f"Downloading video from {url} ...")
     cmd = [
-        "ffmpeg",
-        "-i", str(input_file),
-        "-ss", str(start_sec),   # seek to start position
-        "-t", str(duration),     # duration to copy
-        "-avoid_negative_ts", "make_zero",
+        "yt-dlp",
+        "-f", "best[ext=mp4]",
+        "-o", output_path,
+        url
     ]
+    subprocess.run(cmd, check=True)
+    print(f"Downloaded to {output_path}")
+    return output_path
 
-    if reencode:
-        # Re-encode to ensure accurate cut at non-keyframes (slower)
-        cmd += ["-c:v", "libx264", "-c:a", "aac", "-preset", "fast"]
-    else:
-        # Copy codec (fast, but cut may start at previous keyframe)
-        cmd += ["-c", "copy"]
+def extract_frames(video_path: str, output_dir: str, start_sec: float, end_sec: float,
+                   step: int, max_frames: int = None):
+    """Extract frames from video using OpenCV, respecting time range and step."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video: {video_path}")
 
-    cmd.append(str(output_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / fps
 
-    # Overwrite output if exists
-    if Path(output_path).exists():
-        cmd.insert(1, "-y")
+    # Determine frame indices
+    start_frame = int(start_sec * fps) if start_sec > 0 else 0
+    end_frame = int(end_sec * fps) if end_sec > 0 and end_sec < duration else total_frames - 1
 
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print("FFmpeg error:", result.stderr)
-        sys.exit(1)
-    else:
-        print(f"Successfully cut video to: {output_path}")
+    if start_frame >= total_frames:
+        raise ValueError(f"Start time {start_sec}s exceeds video duration {duration:.2f}s")
+    if end_frame > total_frames - 1:
+        end_frame = total_frames - 1
+        print(f"End time adjusted to video end (frame {end_frame})")
+
+    # Seek to start frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+    # Prepare output directory
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    frame_count = 0
+    saved_count = 0
+    pbar = tqdm(total=end_frame - start_frame + 1, desc="Frames processed")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        current_frame = start_frame + frame_count
+        if current_frame > end_frame:
+            break
+
+        # Save only every `step`-th frame
+        if frame_count % step == 0:
+            filename = out_path / f"frame_{current_frame:08d}.jpg"
+            cv2.imwrite(str(filename), frame)
+            saved_count += 1
+            if max_frames is not None and saved_count >= max_frames:
+                break
+
+        frame_count += 1
+        pbar.update(1)
+        if max_frames is not None and saved_count >= max_frames:
+            break
+
+    pbar.close()
+    cap.release()
+    print(f"Extracted {saved_count} frames to {output_dir} (step={step}, range={start_sec}s-{end_sec}s)")
 
 def main():
-    parser = argparse.ArgumentParser(description="Cut a video using start and end timestamps.")
-    parser.add_argument("-i", "--input", required=True, help="Path to input video file")
-    parser.add_argument("-s", "--start", required=True, help="Start timestamp (e.g., 00:01:30, 1:30, 90)")
-    parser.add_argument("-e", "--end", required=True, help="End timestamp (e.g., 00:02:45, 2:45, 165)")
-    parser.add_argument("-o", "--output", required=True, help="Output video file path")
-    parser.add_argument("--reencode", action="store_true",
-                        help="Re-encode video for precise cutting (slower but accurate at any frame)")
+    parser = argparse.ArgumentParser(description="Extract frames from YouTube or local video with time range and step.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--url", help="YouTube video URL")
+    group.add_argument("--local", help="Local video file path (skip download)")
+    parser.add_argument("--start", default="0", help="Start timestamp (HH:MM:SS, MM:SS, or seconds). Default: 0")
+    parser.add_argument("--end", default=None, help="End timestamp (HH:MM:SS, MM:SS, or seconds). Default: end of video")
+    parser.add_argument("--step", type=int, default=1, help="Extract every N-th frame (default: 1 = all frames)")
+    parser.add_argument("--output", required=True, help="Output directory for extracted frames (will be created)")
+    parser.add_argument("--max-frames", type=int, default=None, help="Maximum number of frames to extract (useful for sampling)")
+    parser.add_argument("--temp-dir", default=tempfile.gettempdir(), help="Directory for temporary downloaded video (default: system temp)")
+
     args = parser.parse_args()
 
-    cut_video(args.input, args.start, args.end, args.output, args.reencode)
+    try:
+        start_sec = time_to_seconds(args.start)
+        end_sec = time_to_seconds(args.end) if args.end else None
+    except ValueError as e:
+        print(f"Time format error: {e}")
+        sys.exit(1)
+
+    # Obtain video file path
+    if args.url:
+        # Create a temporary filename
+        temp_video = os.path.join(args.temp_dir, "yt_download_temp.mp4")
+        try:
+            video_path = download_youtube_video(args.url, temp_video)
+        except subprocess.CalledProcessError:
+            print("yt-dlp download failed. Ensure yt-dlp is installed (pip install yt-dlp).")
+            sys.exit(1)
+    else:
+        video_path = args.local
+        if not os.path.exists(video_path):
+            print(f"Local video not found: {video_path}")
+            sys.exit(1)
+
+    # If end time not provided, we will process until the end (set end_sec = 0 meaning ignore)
+    end_sec_for_extract = end_sec if end_sec is not None else 0
+
+    try:
+        extract_frames(video_path, args.output, start_sec, end_sec_for_extract,
+                       args.step, args.max_frames)
+    except Exception as e:
+        print(f"Error during frame extraction: {e}")
+        sys.exit(1)
+    finally:
+        # Clean up temporary file if we downloaded
+        if args.url and os.path.exists(temp_video):
+            os.remove(temp_video)
+            print("Cleaned up temporary video file.")
 
 if __name__ == "__main__":
     main()

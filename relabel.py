@@ -19,11 +19,11 @@ UA_DETRAC_MAP = {'bus': 3, 'car': 1, 'van': 2, 'others': 4}
 
 # Auto-skip mappings based on instructions (Map Car and Van -> target Car)
 # It leaves 2 (Bus) and 3 (Others) for manual GUI review
-AUTO_MAP_RULES = {
-    1: 0, # Previous 1 (Car) -> Target 0 (Car)
-    2: 0, # van -> car
-    3: 3, #bus -> bus
-}
+# AUTO_MAP_RULES = {
+#     1: 0, # Previous 1 (Car) -> Target 0 (Car)
+#     2: 0, # van -> car
+#     3: 3, #bus -> bus
+# }
 
 class RelabelApp:
     def __init__(self, root, output_dir="dataset_output_test"):
@@ -35,6 +35,7 @@ class RelabelApp:
         self.skip_var = tk.BooleanVar(value=True)
         self.images_list = []
         self.current_img_idx = -1
+        self.images_processed = 0
         self.current_bboxes = []
         self.current_box_idx = -1
         self.default_skip = 30
@@ -81,7 +82,7 @@ class RelabelApp:
                   command=self.start_processing).grid(row=2, column=0, columnspan=4, pady=10)
         
         self.lbl_status = tk.Label(ctrl_frame, text="", fg="blue")
-        self.lbl_status.grid(row=3, column=0, columnspan=4)
+        self.lbl_status.grid(row=4, column=0, columnspan=4)
 
         self.canvas = tk.Canvas(self.root, bg="black", width=800, height=500)
         self.canvas.pack(pady=10)
@@ -135,6 +136,11 @@ class RelabelApp:
             self.train_split = float(self.entry_split.get()) / 100.0
         except ValueError:
             self.train_split = 0.8
+
+        try:
+            self.max_images = int(self.entry_limit.get())
+        except ValueError:
+            self.max_images = len(self.images_list)
         self.current_img_idx = 0
         self.process_current_image()
         
@@ -158,8 +164,9 @@ class RelabelApp:
 
         self.lbl_path = self.images_list[self.current_img_idx][1]
         self.current_bboxes = find_and_parse_labels(self.lbl_path)
+        self.images_processed += 1
         left_to_check = False
-
+        self.lbl_status.config(text=f"img:{self.images_processed}/{self.max_images}, Processing: {base_name} ({self.current_img_idx+1}/{len(self.images_list)})")
         for box in self.current_bboxes:
             old_id = box['id']
             if old_id in AUTO_MAP_RULES:
