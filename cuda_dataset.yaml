@@ -1,6 +1,13 @@
-path: /content/drive/MyDrive/seminarska/dataset_output
-train: train
-val: val
+path: /content/drive/MyDrive/seminarska/datasets
+train: 
+  - bikes_training_dataset/train
+  - premade_for_yolo/train
+  - partial/train
+
+val: 
+  - bikes_training_dataset/val
+  - premade_for_yolo/val
+  - partial/val
 
 # Assuming standard UA-DETRAC classes when converted to YOLO
 names:
