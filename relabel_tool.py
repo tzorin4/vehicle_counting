@@ -1,42 +1,10 @@
-"""
-YOLO Image Labeling Tool  —  with AI-Assist (Iterative Labeling)
-=================================================================
-SETUP:
-    pip install pillow
-
-    For AI-assist (optional):
-    pip install ultralytics        # YOLOv8/v11
-    # or:
-    pip install torch torchvision  # plain PyTorch for custom .pt models
-
-USAGE:
-    python yolo_labeler.py
-
-HOW AI-ASSIST WORKS:
-    1. Train your model on an initial set of labels.
-    2. Export to a .pt file (YOLOv8: `model.save("best.pt")`).
-    3. In the tool, click "🤖 Load Model" and pick the .pt file.
-    4. Click "▶ Run AI" on any image — predictions appear as dashed
-       "ghost" boxes in a distinct colour.
-    5. Accept individual predictions (click → "✔ Accept") or
-       accept all at once with "✔ Accept All Predictions".
-    6. Rejected / unwanted ghosts vanish; accepted ones become
-       normal confirmed boxes you can still edit.
-    7. Add more manual boxes as needed, export, retrain, repeat.
-
-CLASSES — edit the dict below (key = class name, value = YOLO index):
-"""
-
-# ─────────────────────────────────────────────
-#  CONFIGURE YOUR CLASSES HERE
-# ─────────────────────────────────────────────
 CLASSES = {
     "car":    0,
     "motorbike":    1,
     "truck": 2,
     "bus":    3,
 }
-# ─────────────────────────────────────────────
+
 
 import os, sys, shutil, random, threading
 import tkinter as tk
@@ -49,11 +17,9 @@ except ImportError:
     print("ERROR: Pillow is required.  pip install pillow")
     sys.exit(1)
 
-# ── reverse maps ──────────────────────────────────────────────────────────────
 INDEX_TO_CLASS = {v: k for k, v in CLASSES.items()}
 CLASS_NAMES    = list(CLASSES.keys())
 
-# ── colour palette ────────────────────────────────────────────────────────────
 PALETTE = [
     "#FF4444", "#44AAFF", "#44FF88", "#FFB800", "#CC44FF",
     "#FF8844", "#00CCCC", "#FF44AA", "#88FF44", "#8844FF",
@@ -65,7 +31,6 @@ def class_color(class_idx: int) -> str:
     return PALETTE[class_idx % len(PALETTE)]
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 class BBox:
     """One bounding box — either confirmed (human) or a prediction ghost."""
 
@@ -95,23 +60,17 @@ class BBox:
         return cls(x1, y1, x2, y2, ci)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 class ModelWrapper:
-    """
-    Thin wrapper that tries Ultralytics YOLOv8/v11 first, then plain
-    torch.hub / custom forward pass as a fallback.
-    Returns a list of BBox (ghost=True) for a PIL image.
-    """
 
     def __init__(self, model_path: str):
         self.model_path = model_path
         self._model     = None
-        self._kind      = None          # "ultralytics" | "torch"
+        self._kind      = None         
         self._load()
 
     def _load(self):
         path = self.model_path
-        # ── Try Ultralytics first ──────────────────────────────────────────
+
         try:
             from ultralytics import YOLO
             self._model = YOLO(path)
@@ -119,7 +78,7 @@ class ModelWrapper:
             return
         except Exception:
             pass
-        # ── Fallback: raw torch ────────────────────────────────────────────
+
         try:
             import torch
             self._model = torch.load(path, map_location="cpu")
@@ -150,16 +109,10 @@ class ModelWrapper:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 ci   = int(box.cls[0].item())
                 conf = float(box.conf[0].item())
-                # remap model class index → our CLASSES index if possible
-                # (if the model was trained on our dataset they should match)
                 boxes.append(BBox(x1, y1, x2, y2, ci, ghost=True, conf=conf))
         return boxes
 
     def _predict_torch(self, pil_img, conf_thresh):
-        """
-        Generic torch path — expects the model to be a YOLOv5-style hub model
-        that accepts a PIL image and returns .pandas().xyxy[0].
-        """
         import torch
         results = self._model(pil_img)
         df      = results.pandas().xyxy[0]
@@ -177,8 +130,6 @@ class ModelWrapper:
     def name(self) -> str:
         return Path(self.model_path).name
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 class LabelerApp(tk.Tk):
 
     CANVAS_W = 920
@@ -190,7 +141,7 @@ class LabelerApp(tk.Tk):
         self.resizable(True, True)
         self.configure(bg="#1a1a2e")
 
-        # ── core state ─────────────────────────────────────────────────────
+
         self.image_paths:  list[Path]      = []
         self.image_entries: list[dict]     = []   # {img, lbl, split}
         self.current_idx:  int             = -1
@@ -204,13 +155,12 @@ class LabelerApp(tk.Tk):
         self.offset_x:     int   = 0
         self.offset_y:     int   = 0
 
-        # drawing / interaction state
         self.drawing       = False
         self.drag_start    = None
         self.drag_rect_id  = None
         self.selected_box: int | None = None
 
-        # AI state
+
         self.ai_running    = False
         self.conf_thresh   = tk.DoubleVar(value=0.40)
 
@@ -219,11 +169,9 @@ class LabelerApp(tk.Tk):
         self._build_ui()
         self._bind_keys()
 
-    # =========================================================================
-    # UI construction
-    # =========================================================================
+
     def _build_ui(self):
-        # ── Top toolbar ───────────────────────────────────────────────────
+
         toolbar = tk.Frame(self, bg="#16213e", pady=6)
         toolbar.pack(fill=tk.X)
 
@@ -273,7 +221,6 @@ class LabelerApp(tk.Tk):
                                       bg="#16213e", fg="#888", font=("Courier", 9))
         self.output_label.pack(side=tk.RIGHT, padx=12)
 
-        # ── Second toolbar row: confidence slider ─────────────────────────
         conf_row = tk.Frame(self, bg="#12122a", pady=3)
         conf_row.pack(fill=tk.X)
 
@@ -294,7 +241,7 @@ class LabelerApp(tk.Tk):
         tk.Label(conf_row, text="  |  ghost boxes shown in white dashes  |  click ghost → accept/reject",
                  bg="#12122a", fg="#444", font=("Courier", 8)).pack(side=tk.LEFT, padx=8)
 
-        # ── Main area ─────────────────────────────────────────────────────
+
         main = tk.Frame(self, bg="#1a1a2e")
         main.pack(fill=tk.BOTH, expand=True)
 
@@ -302,7 +249,6 @@ class LabelerApp(tk.Tk):
                                  bg="#0d0d1a", highlightthickness=0, cursor="crosshair")
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        # ── Side panel ────────────────────────────────────────────────────
         side = tk.Frame(main, bg="#16213e", width=230)
         side.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
         side.pack_propagate(False)
@@ -396,9 +342,6 @@ class LabelerApp(tk.Tk):
         self.canvas.bind("<ButtonPress-3>",    self._on_right_click)
         self.canvas.bind("<Configure>",        lambda e: self._redraw())
 
-    # =========================================================================
-    # Class UI helpers
-    # =========================================================================
     def _build_class_buttons(self):
         for w in self.class_frame.winfo_children():
             w.destroy()
@@ -434,14 +377,7 @@ class LabelerApp(tk.Tk):
     def active_class_idx(self) -> int:
         return CLASSES.get(self.active_class_var.get(), 0)
 
-    # =========================================================================
-    # File / folder operations
-    # =========================================================================
 
-    # --- internal image registry -----------------------------------------
-    # Each entry: {"img": Path, "lbl": Path | None, "split": str | None}
-    # "split" is "train" / "val" / None (flat folder mode)
-    # We keep a parallel list so the listbox index always matches.
 
     def _register_images(self, entries: list[dict]):
         """Populate image_paths + entries list and refresh the listbox."""
@@ -478,11 +414,7 @@ class LabelerApp(tk.Tk):
         self.status(f"Flat folder: {len(entries)} images from {folder}")
 
     def open_with_labels(self):
-        """
-        Ask for an images folder, then a labels folder.
-        Pairs every image with <labels_dir>/<stem>.txt automatically.
-        Any image whose .txt does not exist yet is treated as unlabeled.
-        """
+
         img_folder = filedialog.askdirectory(title="Step 1 — Select IMAGES folder")
         if not img_folder:
             return
@@ -521,9 +453,6 @@ class LabelerApp(tk.Tk):
         self.output_label.config(text=f"→ {self.output_dir.name}", fg="#44ff88")
         self.status(f"Output: {folder}")
 
-    # =========================================================================
-    # AI model
-    # =========================================================================
     def load_model(self):
         path = filedialog.askopenfilename(
             title="Select YOLO .pt model",
@@ -578,7 +507,6 @@ class LabelerApp(tk.Tk):
         messagebox.showerror("Inference Error", msg)
         self.status("Inference failed — see error dialog.")
 
-    # ── Accept / reject ghosts ────────────────────────────────────────────
     def accept_selected_ghost(self):
         if self.selected_box is None:
             return
@@ -611,9 +539,8 @@ class LabelerApp(tk.Tk):
         self._redraw()
         self.status(f"Box reassigned → [{CLASSES[class_name]}] {class_name}")
 
-    # ── Right-click context menu ───────────────────────────────────────────
+
     def _on_right_click(self, event):
-        """Right-click on canvas: if over a box, pop up a class-reassign menu."""
         if self.pil_image is None:
             return
         hit = self._hit_test(event.x, event.y)
@@ -648,23 +575,9 @@ class LabelerApp(tk.Tk):
         finally:
             menu.grab_release()
 
-    # ── Bulk remap dialog ──────────────────────────────────────────────────
+
     def open_remap_dialog(self):
-        """
-        Remap dialog.
 
-        SOURCE column: every class index actually present in loaded labels
-                       PLUS every index defined in CLASSES — shown as
-                       "idx  name-if-known".
-        TARGET column: a Spinbox (integer entry). Type any integer you want,
-                       including indices that don't exist in your CLASSES dict.
-                       This lets you collapse a fine-grained model (e.g. 15
-                       classes) down to a coarser one (e.g. 5 classes).
-
-        Multiple rows can be changed at once.
-        Scope: current image  or  all loaded label files.
-        """
-        # ── Collect all class indices actually present in loaded labels ──
         present_indices: set[int] = set()
         for entry in self.image_entries:
             lbl = entry["lbl"]
@@ -677,17 +590,16 @@ class LabelerApp(tk.Tk):
                                 present_indices.add(int(parts[0]))
                             except ValueError:
                                 pass
-        # Also add currently drawn boxes
+
         for b in self.boxes:
             present_indices.add(b.class_idx)
-        # Merge with CLASSES-defined indices
+
         all_indices = sorted(present_indices | set(CLASSES.values()))
 
         def idx_label(idx: int) -> str:
             name = INDEX_TO_CLASS.get(idx)
             return f"{idx}  ({name})" if name else f"{idx}  (unknown)"
 
-        # ── Dialog window ────────────────────────────────────────────────
         dlg = tk.Toplevel(self)
         dlg.title("Remap Classes")
         dlg.configure(bg="#1a1a2e")
@@ -704,7 +616,7 @@ class LabelerApp(tk.Tk):
                       "Rows where source = target are skipped.",
                  bg="#1a1a2e", fg="#888", font=("Courier", 9)).pack(pady=(0, 6))
 
-        # ── Scrollable rows area ─────────────────────────────────────────
+
         outer = tk.Frame(dlg, bg="#1a1a2e")
         outer.pack(fill=tk.BOTH, expand=True, padx=12)
 
@@ -732,8 +644,8 @@ class LabelerApp(tk.Tk):
                      font=("Courier", 9, "bold"), padx=8, pady=4,
                      width=w, anchor="w").grid(row=0, column=col, sticky="ew", padx=1)
 
-        # One row per index
-        target_vars: dict[int, tk.StringVar] = {}   # src_idx -> StringVar(str(int))
+
+        target_vars: dict[int, tk.StringVar] = {}  
 
         for i, src_idx in enumerate(all_indices):
             row = i + 1
@@ -754,7 +666,7 @@ class LabelerApp(tk.Tk):
             var = tk.StringVar(value=str(src_idx))
             target_vars[src_idx] = var
 
-            # Spinbox: accepts any integer; user can also type freely
+
             sb = tk.Spinbox(rows_frame, from_=0, to=9999,
                              textvariable=var, width=12,
                              bg=bg, fg="white",
@@ -764,7 +676,6 @@ class LabelerApp(tk.Tk):
                              relief="flat", bd=0)
             sb.grid(row=row, column=2, sticky="ew", padx=4, pady=2)
 
-            # Quick-set buttons: one per known class
             btn_row = tk.Frame(rows_frame, bg=bg)
             btn_row.grid(row=row, column=3, sticky="w", padx=4)
             for tgt_name in CLASS_NAMES:
@@ -779,7 +690,6 @@ class LabelerApp(tk.Tk):
                            command=lambda v=var, t=str(tgt_idx): v.set(t)
                            ).pack(side=tk.LEFT, padx=1)
 
-        # ── Preview ──────────────────────────────────────────────────────
         preview_var = tk.StringVar(value="No changes pending.")
         tk.Label(dlg, textvariable=preview_var,
                  bg="#1a1a2e", fg="#44ff88", font=("Courier", 8),
@@ -802,7 +712,6 @@ class LabelerApp(tk.Tk):
             v.trace_add("write", update_preview)
         update_preview()
 
-        # ── Scope ─────────────────────────────────────────────────────────
         scope_frame = tk.Frame(dlg, bg="#1a1a2e")
         scope_frame.pack(fill=tk.X, padx=12, pady=(4, 2))
         scope_var = tk.StringVar(value="current")
@@ -816,12 +725,10 @@ class LabelerApp(tk.Tk):
                            activebackground="#1a1a2e", activeforeground="white",
                            font=("Courier", 9)).pack(side=tk.LEFT, padx=6)
 
-        # ── Buttons ───────────────────────────────────────────────────────
         btn_frame = tk.Frame(dlg, bg="#1a1a2e")
         btn_frame.pack(pady=8)
 
         def apply():
-            # Build remap: src_int -> tgt_int, skip unchanged
             remap: dict[int, int] = {}
             bad = []
             for si, v in target_vars.items():
@@ -912,9 +819,6 @@ class LabelerApp(tk.Tk):
             if b.class_idx in remap:
                 b.class_idx = remap[b.class_idx]
 
-    # =========================================================================
-    # Image loading
-    # =========================================================================
     def load_image(self, idx: int):
         if not self.image_paths or idx < 0 or idx >= len(self.image_paths):
             return
@@ -948,7 +852,6 @@ class LabelerApp(tk.Tk):
 
     def _load_existing_labels(self, image_path: Path,
                                label_path=None) -> list:
-        """Load YOLO labels. label_path overrides the default sibling .txt."""
         if label_path is None:
             label_path = image_path.with_suffix(".txt")
         boxes = []
@@ -965,7 +868,6 @@ class LabelerApp(tk.Tk):
         return boxes
 
     def _refresh_listbox_row(self, idx: int):
-        """Update colour and checkmark of a single listbox row after save."""
         if idx < 0 or idx >= self.image_listbox.size():
             return
         entry    = self.image_entries[idx]
@@ -981,9 +883,6 @@ class LabelerApp(tk.Tk):
         if idx == self.current_idx:
             self.image_listbox.selection_set(idx)
 
-    # =========================================================================
-    # Canvas rendering
-    # =========================================================================
     def _redraw(self):
         self.canvas.delete("all")
         if self.pil_image is None:
@@ -1019,11 +918,10 @@ class LabelerApp(tk.Tk):
         selected = (idx == self.selected_box)
 
         if box.ghost:
-            # White dashed outline for predictions
+
             outline = "#ffffff"
             dash    = (6, 3)
             width   = 2 if not selected else 3
-            # semi-transparent tint: draw a thin coloured inner rect
             inner_color = class_color(box.class_idx)
             self.canvas.create_rectangle(x1+2, y1+2, x2-2, y2-2,
                                           outline=inner_color, width=1, dash=(2,4))
@@ -1052,18 +950,13 @@ class LabelerApp(tk.Tk):
                                  fill=pill_fg,
                                  font=("Courier", 8, "bold"), anchor="w")
 
-    # =========================================================================
-    # Coordinate helpers
-    # =========================================================================
     def _img_to_canvas(self, x, y):
         return x * self.scale + self.offset_x, y * self.scale + self.offset_y
 
     def _canvas_to_img(self, cx, cy):
         return (cx - self.offset_x) / self.scale, (cy - self.offset_y) / self.scale
 
-    # =========================================================================
-    # Mouse events
-    # =========================================================================
+
     def _on_mouse_press(self, event):
         if self.pil_image is None:
             return
@@ -1123,9 +1016,6 @@ class LabelerApp(tk.Tk):
                 return i
         return None
 
-    # =========================================================================
-    # Box list panel
-    # =========================================================================
     def _refresh_box_list(self):
         self.box_listbox.delete(0, tk.END)
         for i, b in enumerate(self.boxes):
@@ -1136,7 +1026,7 @@ class LabelerApp(tk.Tk):
             conf_str  = f" {b.conf:.0%}" if b.conf is not None else ""
             self.box_listbox.insert(tk.END,
                 f"{mark}{kind} [{b.class_idx}] {name}{conf_str}  {w}×{h}")
-            # colour ghost rows differently
+
             if b.ghost:
                 self.box_listbox.itemconfig(i, fg="#888888")
             else:
@@ -1158,9 +1048,6 @@ class LabelerApp(tk.Tk):
         if sel:
             self.load_image(sel[0])
 
-    # =========================================================================
-    # Box operations
-    # =========================================================================
     def delete_selected_box(self):
         if self.selected_box is None or not self.boxes:
             return
@@ -1177,14 +1064,8 @@ class LabelerApp(tk.Tk):
         if self.current_idx < len(self.image_paths) - 1:
             self.load_image(self.current_idx + 1)
 
-    # =========================================================================
-    # Saving
-    # =========================================================================
+
     def _auto_save(self):
-        """Persist only confirmed (non-ghost) boxes.
-        Always writes to the entry label path (source).
-        If an output_dir is set, ALSO writes a mirror copy there under
-        output_dir/labels/<stem>.txt so the output folder stays up to date."""
         if self.current_idx < 0 or not self.image_paths or self.pil_image is None:
             return
         entry      = self.image_entries[self.current_idx]
@@ -1224,9 +1105,6 @@ class LabelerApp(tk.Tk):
             self.status(f"Saved {n} box(es) for {entry['img'].name}")
             self._refresh_listbox_row(self.current_idx)
 
-    # =========================================================================
-    # Export dataset
-    # =========================================================================
     def export_all(self):
         if not self.output_dir:
             messagebox.showerror("No Output Dir", "Set an output directory first.")
@@ -1320,14 +1198,10 @@ class LabelerApp(tk.Tk):
         dialog.wait_window()
         return result["value"]
 
-    # =========================================================================
-    # Status
-    # =========================================================================
+
     def status(self, msg: str):
         self.status_var.set(msg)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     app = LabelerApp()
     app.mainloop()

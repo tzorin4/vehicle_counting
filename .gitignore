@@ -15,3 +15,4 @@ datasets/
 *videos/
 model_labels/
 counting_results/
+model*.pt

@@ -1,16 +1,3 @@
-"""
-YOLO Line-Crossing Object Counter — with per-class counts
-Usage: python count_vehicles.py --video input.mp4 --model best.pt --output ./output
-
-Improvements over original:
-  - Flicker suppression: a crossing is only counted after an object has remained
-    on the new side of the line for CONFIRM_FRAMES consecutive frames.
-  - Proximity deduplication: new detections within MIN_PIXEL_DIST pixels of an
-    existing track are merged into that track instead of spawning a new one.
-  - Per-class crossing counts for classes 0-3 (car, motorbike, truck, bus),
-    shown in the overlay and printed in the final summary.
-"""
-
 import argparse
 import cv2
 import numpy as np
@@ -18,18 +5,16 @@ from collections import defaultdict
 from pathlib import Path
 from ultralytics import YOLO
 
-# ── tuneable constants ────────────────────────────────────────────────────────
-CONFIRM_FRAMES = 10   # frames object must stay on new side before crossing counts
-MIN_PIXEL_DIST =  8   # detections closer than this (px) are merged, not spawned
+CONFIRM_FRAMES = 10   
+MIN_PIXEL_DIST =  8   
 
-# Classes to track individually (id -> display name)
+
 CLASS_NAMES = {
     0: "car",
     1: "motorbike",
     2: "truck",
     3: "bus",
 }
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def parse_args():
@@ -48,10 +33,8 @@ def parse_args():
     return parser.parse_args()
 
 
-# ── geometry helpers ──────────────────────────────────────────────────────────
 
 def side_of_line(point, a, b):
-    """Which side of line AB is the point on? Returns +1 or -1."""
     return int(np.sign((b[0]-a[0])*(point[1]-a[1]) - (b[1]-a[1])*(point[0]-a[0])))
 
 
@@ -60,14 +43,8 @@ def centroid(box):
     return ((x1 + x2) // 2, (y1 + y2) // 2)
 
 
-# ── tracker ───────────────────────────────────────────────────────────────────
-
 class SimpleTracker:
-    """
-    Lightweight centroid tracker.
-    Stores the most-recently-seen class ID alongside each track so that
-    CrossingState can attribute confirmed crossings to the right class.
-    """
+
     def __init__(self, max_dist=80, max_missing=10, min_spawn_dist=8):
         self.next_id        = 0
         self.objects        = {}   # id -> {centroid, cls_id, missing}
@@ -76,10 +53,7 @@ class SimpleTracker:
         self.min_spawn_dist = min_spawn_dist
 
     def update(self, detections):
-        """
-        detections: list of (centroid, cls_id) tuples
-        Returns dict: id -> {centroid, cls_id, missing}
-        """
+
         centroids = [d[0] for d in detections]
         cls_ids   = [d[1] for d in detections]
 
@@ -128,17 +102,14 @@ class SimpleTracker:
         return dict(self.objects)
 
 
-# ── crossing state machine ────────────────────────────────────────────────────
+
 
 class CrossingState:
-    """
-    Per-track flicker-suppressed crossing detector.
-    Returns (direction, cls_id) on confirmation, else None.
-    """
+
     def __init__(self, confirm_frames=10):
         self.confirm_frames = confirm_frames
         self._state = {}
-        # id -> {last_side, candidate_dir, frames_held, pending_cls}
+      
 
     def _init_id(self, obj_id, side, cls_id):
         self._state[obj_id] = {
@@ -149,9 +120,7 @@ class CrossingState:
         }
 
     def update(self, obj_id, cent, cls_id, line_a, line_b):
-        """
-        Returns ("in"|"out", cls_id) when a crossing is confirmed, else None.
-        """
+
         side = side_of_line(cent, line_a, line_b)
         if side == 0:
             return None
@@ -161,7 +130,7 @@ class CrossingState:
             return None
 
         st = self._state[obj_id]
-        # always keep cls_id fresh (handles brief misclassification frames)
+
         st["pending_cls"] = cls_id
 
         if st["candidate_dir"] is None:
@@ -171,7 +140,7 @@ class CrossingState:
             return None
 
         if side == st["last_side"]:
-            # bounced back → flicker, discard
+
             st["candidate_dir"] = None
             st["frames_held"]   = 0
             return None
@@ -194,8 +163,6 @@ class CrossingState:
             del self._state[dead_id]
 
 
-# ── drawing helpers ───────────────────────────────────────────────────────────
-
 def draw_line(frame, a, b):
     cv2.line(frame, a, b, (255, 180, 0), 2, cv2.LINE_AA)
     cv2.circle(frame, a, 5, (255, 180, 0), -1)
@@ -205,13 +172,9 @@ def draw_line(frame, a, b):
 
 
 def draw_overlay(frame, total, count_in, count_out, class_counts):
-    """
-    Overlay box showing total/in/out plus a per-class breakdown.
-    class_counts: dict of cls_id -> {"in": n, "out": n}
-    """
-    # count how many class rows we'll actually draw (only classes seen so far)
+
     active_classes = [cid for cid in sorted(CLASS_NAMES) if sum(class_counts[cid].values()) > 0]
-    n_rows  = 3 + len(active_classes)          # total / in / out + one per class
+    n_rows  = 3 + len(active_classes)         
     box_h   = 16 + n_rows * 20
     box_w   = 190
 
@@ -233,8 +196,6 @@ def draw_overlay(frame, total, count_in, count_out, class_counts):
         cv2.putText(frame, text, (14, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,200,200), 1)
         y += 20
 
-
-# ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
@@ -273,7 +234,6 @@ def main():
     crossing_state = CrossingState(confirm_frames=args.confirm_frames)
 
     count_total = count_in = count_out = 0
-    # per-class counters: cls_id -> {"in": n, "out": n}
     class_counts = defaultdict(lambda: {"in": 0, "out": 0})
 
     frame_idx = 0
@@ -288,7 +248,7 @@ def main():
         results = model(frame, conf=args.conf, verbose=False)[0]
         boxes   = results.boxes
 
-        detections = []   # list of (centroid, cls_id)
+        detections = []
         yolo_lines = []
 
         for box in boxes:
@@ -312,7 +272,6 @@ def main():
 
         tracked = tracker.update(detections)
 
-        # ── flicker-suppressed, class-aware crossing detection ────────────────
         for obj_id, obj in tracked.items():
             result = crossing_state.update(
                 obj_id, obj["centroid"], obj["cls_id"], line_a, line_b
@@ -328,7 +287,6 @@ def main():
                     class_counts[cls_id]["out"] += 1
 
         crossing_state.purge(tracked.keys())
-        # ─────────────────────────────────────────────────────────────────────
 
         label_file = labels_dir / f"frame_{frame_idx:06d}.txt"
         label_file.write_text("\n".join(yolo_lines))
@@ -350,7 +308,6 @@ def main():
     cap.release()
     writer.release()
 
-    # ── final summary ─────────────────────────────────────────────────────────
     print(f"\nDone.")
     print(f"  Total crossings : {count_total}")
     print(f"  In              : {count_in}")

@@ -15,7 +15,6 @@ val:
   - overpass_1/val
   - overpass_2/val
 
-# Assuming standard UA-DETRAC classes when converted to YOLO
 names:
   0: car
   1: motorcycle
