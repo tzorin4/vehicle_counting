@@ -14,3 +14,4 @@ runs1
 datasets/
 *videos/
 model_labels/
+counting_results/

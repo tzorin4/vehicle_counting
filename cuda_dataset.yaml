@@ -1,13 +1,19 @@
 path: /content/drive/MyDrive/seminarska/datasets
 train: 
   - bikes_training_dataset/train
-  - premade_for_yolo/train
+  - trucks_training/train
   - partial/train
+  - overpass_buss/train
+  - overpass_1/train
+  - overpass_2/train
 
 val: 
   - bikes_training_dataset/val
-  - premade_for_yolo/val
+  - trucks_training/val
   - partial/val
+  - overpass_buss/val
+  - overpass_1/val
+  - overpass_2/val
 
 # Assuming standard UA-DETRAC classes when converted to YOLO
 names:
